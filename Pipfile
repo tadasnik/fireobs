@@ -1,0 +1,27 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+ipython = "*"
+numpy = "*"
+neovim = "*"
+"0cb8bc3" = {file = "https://software.ecmwf.int/wiki/download/attachments/56664858/ecmwf-api-client-python.tgz"}
+xarray = "*"
+matplotlib = "*"
+cython = "*"
+cartopy = "*"
+"netcdf4" = "*"
+scipy = "*"
+"h5py" = "*"
+proj = "*"
+seaborn = "*"
+palettable = "*"
+rtree = "*"
+dask = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.6"
