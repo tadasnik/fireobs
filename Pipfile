@@ -20,6 +20,15 @@ seaborn = "*"
 palettable = "*"
 rtree = "*"
 dask = "*"
+tables = "*"
+scikit-learn = "*"
+hdbscan = "*"
+vispy = "*"
+"pyqt5" = "*"
+pyopengl = "*"
+jupyter = "*"
+bokeh = "*"
+numba = "*"
 
 [dev-packages]
 

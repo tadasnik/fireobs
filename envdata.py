@@ -1,24 +1,45 @@
 import os
-import glob
+import time
 import datetime
 import numpy as np
 import xarray as xr
 import pandas as pd
 from sklearn.cluster import DBSCAN
 from pyhdf.SD import SD
+import matplotlib
 import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from cartopy.mpl.geoaxes import GeoAxes
+from mpl_toolkits.axes_grid1 import AxesGrid
+
 
 def cluster_haversine(dfr):
     db = DBSCAN(eps=0.8/6371., min_samples=2, algorithm='ball_tree', 
             metric='haversine', n_jobs=-1).fit(np.radians(dfr[['lat', 'lon']]))
     return db.labels_
 
-def cluster_euc(XYZ, dates, space_eps):
-    XYZT = np.column_stack((XYZ, dates * (space_eps / 2.5))
-    db = DBSCAN(eps=space_eps, min_samples=2, algorithm='ball_tree', 
-            metric='euclidean', n_jobs=-1).fit(XYZT)
+def cluster_euc(xyz, dates, min_samples, space_eps, time_eps):
+    #divide space eps by approximate Earth radius in km to get eps in radians.
+    eps = space_eps / 6371
+    #xyzt = np.column_stack((xyz, dates * (eps / time_eps)))
+    db = DBSCAN(eps=eps, min_samples=min_samples, algorithm='ball_tree', 
+            metric='euclidean', n_jobs=-1).fit(np.column_stack((xyz, dates * (eps / time_eps))))
     return db.labels_
 
+def cluster_euc_block(xyzt, eps, min_samples):
+    #divide space eps by approximate Earth radius in km to get eps in radians.
+    #xyzt = np.column_stack((xyz, dates * (eps / time_eps)))
+    db = DBSCAN(eps=eps, min_samples=min_samples, algorithm='ball_tree', 
+            metric='euclidean', n_jobs=-1).fit(xyzt)
+    return db.labels_
+
+
+
+def lon_lat_to_spherical(dfr):
+    lon_rad, lat_rad = np.deg2rad(dfr.lon), np.deg2rad(dfr.lat)
+    xyz = spher_to_cartes(lon_rad, lat_rad)
+    return xyz
 
 def get_tile_ref(fname):
     hv = os.path.basename(fname).split('.')[-4]
@@ -32,7 +53,96 @@ def spher_to_cartes(lon_rad, lat_rad):
     z = np.sin(lat_rad)
     return np.column_stack((x,y,z))
 
+def get_days_since(dfr):
+    basedate = pd.Timestamp('2002-01-01')
+    dates = pd.to_datetime(dfr.year, format='%Y') + pd.to_timedelta(dfr.date, unit='d')
+    dfr.loc[:, 'day_since'] = (dates - basedate).dt.days
+    return dfr#(dates - basedate).dt.days
 
+
+def plot_objs(dfr, labs=None, dur=None):
+    fig = plt.figure(figsize=(10, 10))
+    if not labs and not dur:
+        labs = dfr['labels'].values
+    if not labs and dur:
+        labs = dfr['labels_{0}'.format(dur)].values
+    cmap = matplotlib.colors.ListedColormap(np.random.rand(len(np.unique(labs)),3))
+    ax = fig.add_subplot((111), projection=ccrs.PlateCarree())
+    gl = ax.gridlines(ccrs.PlateCarree(), draw_labels=True)
+    ax.scatter(dfr.lon, dfr.lat, c=labs, transform=ccrs.PlateCarree(), cmap=cmap)
+    ax.coastlines()
+    #ax.set_extent([bbox[0], bbox[1], bbox[2], bbox[3]])
+    plt.show()
+
+def plot_objs_day_of_burn(dfr):
+    fig = plt.figure(figsize=(10, 5))
+    cmap = matplotlib.colors.ListedColormap(np.random.rand(len(dfr.day_since.unique()),3))
+    ax = fig.add_subplot((111), projection=ccrs.PlateCarree())
+    day_p = ax.scatter(dfr.lon, dfr.lat, c=dfr.day_since, transform=ccrs.PlateCarree())
+    plt.colorbar(day_p)
+    ax.coastlines()
+    ax.set_extent([bbox[0], bbox[1], bbox[2], bbox[3]])
+    plt.show()
+
+
+def sync_plot(dfr, labs, bbox):
+    fig = plt.figure(figsize=(10, 5))
+    projection = ccrs.PlateCarree()
+    axes_class = (GeoAxes,
+                  dict(map_projection=projection))
+    axgr = AxesGrid(fig, 111, axes_class=axes_class,
+                    nrows_ncols=(1, 2),
+                    axes_pad=0.5,
+                    cbar_location='right',
+                    cbar_mode='single',
+                    cbar_pad=0.2,
+                    cbar_size='10%',
+                    label_mode='')
+
+    for nr, ax in enumerate(axgr):
+        if nr == 0:
+        #cmap = matplotlib.colors.ListedColormap(np.random.rand(len(dfr.day_since.unique()),3))
+            cmap = matplotlib.colors.ListedColormap(np.random.rand(len(labs),3))
+            gl = ax.gridlines(ccrs.PlateCarree(), draw_labels=True)
+            ax.scatter(dfr.lon, dfr.lat, c=labs, transform=ccrs.PlateCarree(), cmap=cmap)
+            ax.coastlines()
+            ax.set_extent([bbox[0], bbox[1], bbox[2], bbox[3]])
+            gl.xlabels_top = gl.ylabels_right = False
+        else:
+            gl = ax.gridlines(ccrs.PlateCarree(), draw_labels=True)
+            day_p = ax.scatter(dfr.lon, dfr.lat, c=dfr.day_since, transform=ccrs.PlateCarree())
+            ax.coastlines()
+            ax.set_extent([bbox[0], bbox[1], bbox[2], bbox[3]])
+            gl.xlabels_top = gl.ylabels_right = False
+            ax.format_coord = Formatter(day_p)
+    cbar = axgr.cbar_axes[0].colorbar(day_p)#, ticks=np.arange(0.5, 12, 1))
+    plt.show()
+
+
+ 
+ 
+
+
+def find_ignitions(dfr):
+    days = dfr.day_since.unique()
+    days[::-1].sort()
+    obj_cs = {}
+    for nr, day in enumerate(days[1:]):
+        print(day)
+        dr = dfr[dfr.day_since <= day]
+        labs = cluster_euc(dr[['x', 'y', 'z']], dr.day_since, 1, 0.7)# make this class method, self.eps!
+        for lab in np.unique(labs):
+            if len(labs[labs==lab] == 1):
+                obj_cs[str(lab)] = [dr[labs==lab]['lon'].mean(), dr[labs==lab]['lat'].mean()]
+                obj_cs[str(lab)] = [dr[labs==lab]['lon'].mean(), dr[labs==lab]['lat'].mean()]
+        
+
+def add_xyz(dfr):
+    xyz = lon_lat_to_spherical(dfr)
+    dfr.loc[:, 'x'] = xyz[:,0]
+    dfr.loc[:, 'y'] = xyz[:,1]
+    dfr.loc[:, 'z'] = xyz[:,2]
+    return dfr
 
 class FireObs(object):
 
@@ -46,6 +156,11 @@ class FireObs(object):
         self.y_max = 10007555 # the northern linit ot the projection plane (m)
         self.w_size = 463.31271653 # the actual size of a "500-m" MODIS sinusoidal grid cell
         self.earth_r = 6371007.181 # the radius of the idealized sphere representing the Earth
+        self.years = list(range(2002, 2016))
+        #DBSCAN eps in radians = 650 meters / earth radius
+        self.eps = 750 / self.earth_r
+        self.basedate = pd.Timestamp('2002-01-01')
+
 
         self.regions_bounds = {'Am_tr': [-113, 31.5, -3.5, -55],
                                'Af_tr': [-18, 22.5, 52, -35],
@@ -123,6 +238,15 @@ class FireObs(object):
             dataset = dataset.sel(time=datetime.time(hour))
         return dataset
 
+    def to_day_since(self, dtime_string):
+        """
+        Method returning day since the self base date. Takes string datetime in
+        YYYY-MM-DD format.
+        """
+        dtime = pd.to_datetime(dtime_string, format='%Y-%m-%d')
+        return (dtime - self.basedate).days
+
+
     def get_file_names(self, fname_dir, extension=None):
         if extension:
             pattern = '*.{0}'.format(extension)
@@ -180,27 +304,139 @@ class FireObs(object):
  
     def populate_store(self):
         years = list(range(2002, 2016))
-        for year in years:
+        for year in self.years:
             dfr = self.read_ba_year(year)
             dfr.to_hdf(self.store_name, key='ba', format='table', 
                        data_columns=['year', 'date', 'lon', 'lat'], append=True)
 
 
     def populate_store_tropics(self, tropics_store_name):
-        years = list(range(2002, 2016))
-        for year in years:
+        for year in self.years:
             dfr = pd.read_hdf(self.store_name, 'ba', where="year=={0}".format(str(year)))
+            dfr = self.get_days_since(dfr)
             for reg in self.regions_bounds.keys():
                 bbox = self.regions_bounds[reg]
                 sel_dfr = dfr[(dfr.lon > bbox[0])&(dfr.lon < bbox[2])]
-                sel_dfr = sel_dfr[(sel_dfr.lon < bbox[1])&(sel_dfr.lon > bbox[3])]
+                sel_dfr = sel_dfr[(sel_dfr.lat < bbox[1])&(sel_dfr.lat > bbox[3])]
                 sel_dfr.to_hdf(tropics_store_name, key=reg, format='table', 
-                       data_columns=['year', 'date', 'lon', 'lat'], append=True)
+                       data_columns=['year', 'date', 'day_since', 'lon', 'lat'], append=True)
+
+    def populate_store_af_blocks(self, store_name, tropics_store_name):
+        for year in self.years[:-1]:
+            block_strings = self.block_strings(year)
+            dfr = [pd.read_hdf(store_name, 'ba', where=x) for x in block_strings]
+            dfr = pd.concat(dfr)
+            reg = 'Af_tr'
+            bbox = self.regions_bounds[reg]
+            dfr = dfr[(dfr.lon > bbox[0])&(dfr.lon < bbox[2])]
+            dfr = dfr[(dfr.lat < bbox[1])&(dfr.lat > bbox[3])]
+            dfr = get_days_since(dfr)
+            dfr = add_xyz(dfr)
+            dfr.sort_values(by='day_since', inplace=True)
+            dfr.to_hdf(tropics_store_name, key=reg+'/block_{0}'.format(year), mode='r+', format='table', 
+                       data_columns=['day_since'], append=True)
 
 
 
     def select_ba(self, selection):
         pass
+
+    def lon_lat_to_spherical(self, dfr):
+        lon_rad, lat_rad = np.deg2rad(dfr.lon), np.deg2rad(dfr.lat)
+        xyz = spher_to_cartes(lon_rad, lat_rad)
+        return xyz
+
+    def write_xyz_day_since(self, store_objects):
+        for obj in store_objects:
+            print(obj)
+            dfr = pd.read_hdf(ba.store_name, obj)
+            dfr = add_xyz(dfr)
+            dfr[['x', 'y', 'z']].to_hdf(store_name, key='{0}/xyz'.format(obj), append=True)
+            #dfr.drop(columns=['x', 'y', 'z'])
+            dfr = get_days_since(dfr)
+            dfr['day_since'].to_hdf(store_name, key='{0}/day_since'.format(obj), append=True)
+
+    def block_strings(self, year):
+        if year not in self.years[:-1]:
+            print('year {0} out of range'.format(year))
+            return None
+        break_day = pd.Timestamp('{0}-04-21'.format(year)).dayofyear
+        if year == 2002:
+            block_strings = ['year=={0}'.format(year), 
+                             'year=={0}&date<={1}'.format(year+1, break_day)]
+        elif year == 2014:
+            block_strings = ['year=={0}&date>{1}'.format(year, break_day), 
+                             'year=={0}'.format(year+1)]
+        else:
+            break_day_next = pd.Timestamp('{0}-04-21'.format(year+1)).dayofyear
+            block_strings = ['year=={0}&date>{1}'.format(year, break_day), 
+                             'year=={0}&date<={1}'.format(year+1, break_day_next)]
+        return block_strings
+
+    def get_overlap_dur(self, block_string, dur):
+        label_str = 'labels_{0}'.format(dur)
+        labels_pr = pd.read_hdf(store_name, 
+                                key=block_string+'/labels_{0}'.format(dur)).values
+        dfr_pr = pd.read_hdf(store_name, key=block_string, columns=['lon', 'lat', 'day_since'])
+        dfr_pr.loc[:,label_str] = labels_pr 
+        last_day = dfr_pr['day_since'].max()
+        ovarlap_labels = dfr_pr[dfr_pr['day_since'] >= last_day - dur][label_str]
+        overlap_dfr = dfr_pr[dfr_pr[label_str].isin(overlap_labels[overlap_labels > -1])]
+        overlap_labels = overlap_dfr[label_str]
+        #TODO finish this
+        #+ -1's from overlap duration and return!
+
+ 
+
+    def cluster_blocks(self, store_name, dur):
+        start_time = time.time()
+        for dur in np.arange(2, 15, 2):
+            print(dur)
+            for nr, year in enumerate(self.years[:-1]):
+                print(year)
+                block_string = 'Af_tr/block_{0}'.format(year)
+                dfr = pd.read_hdf(store_name, key=block_string, columns=['x', 'y', 'z', 'day_since'])
+                dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
+                if nr == 0:
+                    labels = cluster_euc_block(dfr[['x', 'y', 'z', 
+                                                    'day_since_tmp']].values,
+                                                                    self.eps, 
+                                                                    min_samples=2)
+                    label_fr = pd.DataFrame({'labels_{0}'.format(dur): labels})
+                    label_fr.to_hdf(store_name, key=block_string+'/labels_{0}'.format(dur),
+                                    format='table', data_columns=['labels_{0}'.format(dur)],
+                                    append=True)
+                else:
+                    labels = cluster_euc_block(dfr[['x', 'y', 'z', 'day_since']].values, self.eps, min_samples=2)
+
+                    overlap = get_overlap_dur()
+                    label_fr = pd.DataFrame({'labels_{0}'.format(labels): labels})
+                    labels_pr = pd.read_hdf(store_name, 
+                                   key='Af_tr/block_{0}/labels_{1}'.format(years[nr-1], dur))
+                fr['labs_{0}'.format(str(dur))] = labels
+                fr.to_hdf(store_name, key='{0}/labs_{1}'.format(obj, str(dur)), format='table',
+                        columns=['labs_{0}'.format(str(dur))], append=True)
+                print("--- %s seconds ---" % (time.time() - start_time))
+                start_time = time.time()
+
+
+    def cluster_store(self, store_name, store_objects):
+        start_time = time.time()
+        for obj in store_objects:
+            print(obj)
+            xyz = pd.read_hdf(ba.store_name, '{0}/xyz'.format(obj))
+            day_since = pd.read_hdf(ba.store_name, '{0}/day_since'.format(obj))
+            xyz = lon_lat_to_spherical(dfr)
+            day_since = get_days_since(dfr)
+            for dur in np.arange(2, 15, 2):
+                print(dur)
+                labels = cluster_euc(xyz, dfr.day_since.values, 2, 0.65, dur)
+                fr = pd.DataFrame()
+                fr['labs_{0}'.format(str(dur))] = labels
+                fr.to_hdf(store_name, key='{0}/labs_{1}'.format(obj, str(dur)), format='table',
+                        columns=['labs_{0}'.format(str(dur))], append=True)
+                print("--- %s seconds ---" % (time.time() - start_time))
+                start_time = time.time()
 
 
 
@@ -208,12 +444,11 @@ class FireObs(object):
 if __name__ == '__main__':
     data_path = '.'
     #data_path = '/mnt/data/area_burned_glob'
-    #store_name = 'ba_store.h5'
+    #store_name = os.path.join(data_path, 'ba_store.h5')
     store_name = 'ba_tropics_store.h5'
     #tropics_store = 'ba_tropics_store.h5'
     ba = FireObs(data_path, os.path.join(data_path, store_name))
+    #ba.populate_store_af_blocks(store_name, tropics_store, )
+    #ba.cluster_store(store_name, ['Af_tr', 'Am_tr', 'As_tr'])
     #ba.populate_store_tropics(tropics_store)
     #ba.populate_store()
-
-
-
