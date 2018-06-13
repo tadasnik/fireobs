@@ -29,6 +29,10 @@ pyopengl = "*"
 jupyter = "*"
 bokeh = "*"
 numba = "*"
+datashader = "*"
+pyviz = "*"
+holoviews = "*"
+notedown = "*"
 
 [dev-packages]
 
