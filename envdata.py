@@ -6,7 +6,8 @@ import xarray as xr
 import pandas as pd
 from sklearn.cluster import DBSCAN
 from pyhdf.SD import SD
-from show import *
+from gridding import Gridder
+
 
 def cluster_haversine(dfr):
     db = DBSCAN(eps=0.8/6371., min_samples=2, algorithm='ball_tree', 
@@ -46,7 +47,6 @@ def get_days_since(dfr):
 def find_ignitions_naive(dfr):
     df = dfr[dfr.day_since==dfr.day_since.min()]
     centroids = df.groupby(['labs1']).agg({'lon':'mean', 'lat':'mean'})
-    centroids.loc[:, 'object'] = dfr['labs8'].iloc[0]
     return centroids
 
 def find_ignitions(dfr):
@@ -94,7 +94,8 @@ class FireObs(object):
 
     def pixel_lon_lat(self, tile_v, tile_h, idi, idj):
         """
-        A method to calculate pixel lon lat, based on the MCD64A1 ATBD formulas (Giglio)
+        A method to calculate pixel lon lat, using the formulas 
+        given in the MCD64A1 product ATBD document (Giglio)
         """
         # positions of centres of the grid cells on the global sinusoidal grid
         x_pos = ((idj + 0.5) * self.w_size) + (tile_h * self.tile_size) + self.x_min
@@ -358,7 +359,7 @@ class FireObs(object):
             label_fr.to_hdf(store_name, key=obj+'/labels_{0}'.format(dur),
                             format='table', data_columns=['labels_{0}'.format(dur)],
                             append=True)
-       
+
 if __name__ == '__main__':
     data_path = '.'
     #data_path = '/mnt/data/area_burned_glob'

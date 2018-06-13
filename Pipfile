@@ -33,6 +33,7 @@ datashader = "*"
 pyviz = "*"
 holoviews = "*"
 notedown = "*"
+pyarrow = "*"
 
 [dev-packages]
 
