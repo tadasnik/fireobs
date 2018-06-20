@@ -4,8 +4,10 @@ import datetime
 import numpy as np
 import xarray as xr
 import pandas as pd
+import dask as ds
 from sklearn.cluster import DBSCAN
-from pyhdf.SD import SD
+#from pyhdf.SD import SD
+from multiprocessing import Pool, cpu_count
 from gridding import Gridder
 
 
@@ -44,11 +46,6 @@ def get_days_since(dfr):
     dfr.loc[:, 'day_since'] = (dates - basedate).dt.days
     return dfr#(dates - basedate).dt.days
 
-def find_ignitions_naive(dfr):
-    df = dfr[dfr.day_since==dfr.day_since.min()]
-    centroids = df.groupby(['labs1']).agg({'lon':'mean', 'lat':'mean'})
-    return centroids
-
 def find_ignitions(dfr):
     days = dfr.day_since.unique()
     days[::-1].sort()
@@ -61,7 +58,16 @@ def find_ignitions(dfr):
             if len(labs[labs==lab] == 1):
                 obj_cs[str(lab)] = [dr[labs==lab]['lon'].mean(), dr[labs==lab]['lat'].mean()]
                 obj_cs[str(lab)] = [dr[labs==lab]['lon'].mean(), dr[labs==lab]['lat'].mean()]
-        
+
+def applyParallel(dfGrouped, func):
+    with Pool(cpu_count()) as p:
+        ret_list = p.map(func, [group for name, group in dfGrouped])
+    return pd.concat(ret_list)
+
+def get_group_rows(df, group_col, condition_col, func, comparison='=='):
+     g = df.groupby(group_col)[condition_col]
+     condition_limit = g.transform(func)
+     return df.query('{0} {1} @condition_limit'.format(condition_col,comparison))
 
 def add_xyz(dfr):
     xyz = lon_lat_to_spherical(dfr)
@@ -87,6 +93,7 @@ class FireObs(object):
         self.eps = 750 / self.earth_r
         self.basedate = pd.Timestamp('2002-01-01')
 
+        self.labels = ['labs1', 'labs2', 'labs4', 'labs8', 'labs16']
 
         self.regions_bounds = {'Am_tr': [-113, 31.5, -3.5, -55],
                                'Af_tr': [-18, 22.5, 52, -35],
@@ -237,31 +244,68 @@ class FireObs(object):
                        data_columns=['year', 'date', 'lon', 'lat'], append=True)
 
 
-    def populate_store_tropics(self, store_name):
-        for year in self.years:
-            dfr = pd.read_hdf(self.store_name, 'ba', where="year=={0}".format(str(year)))
-            dfr = self.get_days_since(dfr)
-            for reg in self.regions_bounds.keys():
-                bbox = self.regions_bounds[reg]
-                sel_dfr = dfr[(dfr.lon > bbox[0])&(dfr.lon < bbox[2])]
-                sel_dfr = sel_dfr[(sel_dfr.lat < bbox[1])&(sel_dfr.lat > bbox[3])]
-                sel_dfr.to_hdf(tropics_store_name, key=reg, format='table', 
-                       data_columns=['year', 'date', 'day_since', 'lon', 'lat'], append=True)
+    def copy_store_tropics(self, store_name, tropics_store_name):
+        dfr = pd.read_hdf(self.store_name, 'ba')#, where="year=={0}".format(str(year)))
+        for reg in self.regions_bounds.keys():
+            if reg == 'Af_tr':
+                continue
+            bbox = self.regions_bounds[reg]
+            sel_dfr = dfr[(dfr.lon > bbox[0])&(dfr.lon < bbox[2])]
+            sel_dfr = sel_dfr[(sel_dfr.lat < bbox[1])&(sel_dfr.lat > bbox[3])]
+            #sel_dfr = get_days_since(sel_dfr)
+            #sel_dfr = add_xyz(sel_dfr)
+            #sel_dfr.sort_values(by='day_since', inplace=True)
+            parq_name = '{0}.parquet'.format(reg)
+            sel_dfr.to_parquet(parq_name, engine='pyarrow')
+            #sel_dfr.to_hdf(tropics_store_name, key=reg, format='table', 
+            #       data_columns=['year', 'date', 'day_since', 'lon', 'lat'], append=True)
+
+    def preprocess_tropics(self):
+        for reg in self.regions_bounds.keys():
+            if reg == 'Af_tr':
+                for year in self.years[:-1]:
+                    block_strings = self.block_strings(year)
+                    dfr = [pd.read_hdf(store_name, 'ba', where=x) for x in block_strings]
+                    dfr = pd.concat(dfr)
+                    parq_name = '{0}_{1}.parquet'.format(reg, year)
+                    self.preprocess(dfr, os.path.join(self.data_path, parq_name))
+            else:
+                dfr = pd.read_parquet('{0}_unprocessed.parquet'.format(reg))
+                parq_name = '{0}.parquet'.format(reg)
+                self.preprocess(dfr, os.path.join(self.data_path, '{0}.parquet'))
+
+    def preprocess(self, dfr, out_name):
+        dfr = get_days_since(dfr)
+        dfr = add_xyz(dfr)
+        dfr.sort_values(by='day_since', inplace=True)
+        dfr.reset_index(drop=True, inplace=True)
+        dfr.to_parquet(out_name, engine='pyarrow')
+
+    def add_labels_to_dfr(self, reg):
+        store_name = os.path.join(self.data_path, '{}.parquet'.format(reg))
+        dfr = pd.read_parquet(store_name)
+        for dur in [1, 2, 4, 8, 16]:
+            label_name = os.path.join(self.data_path, '{0}_labels_{1}.parquet'.format(reg, dur))
+            labs = pd.read_parquet(label_name)
+            dfr.loc[:, 'labs{0}'.format(dur)] = labs.values
+        dfr.to_parquet(store_name)
 
     def populate_store_af_blocks(self, store_name, tropics_store_name):
         for year in self.years[:-1]:
             block_strings = self.block_strings(year)
             dfr = [pd.read_hdf(store_name, 'ba', where=x) for x in block_strings]
             dfr = pd.concat(dfr)
-            reg = 'Af_tr'
-            bbox = self.regions_bounds[reg]
+            bbox = self.regions_bounds['Af_tr']
             dfr = dfr[(dfr.lon > bbox[0])&(dfr.lon < bbox[2])]
             dfr = dfr[(dfr.lat < bbox[1])&(dfr.lat > bbox[3])]
             dfr = get_days_since(dfr)
             dfr = add_xyz(dfr)
             dfr.sort_values(by='day_since', inplace=True)
-            dfr.to_hdf(tropics_store_name, key=reg+'/block_{0}'.format(year), mode='r+', format='table', 
-                       data_columns=['day_since'], append=True)
+            dfr.reset_index(drop=True, inplace=True)
+            parq_name = 'Af_tr_{0}.parquet'.format(year)
+            dfr.to_parquet(parq_name, engine='pyarrow')
+            #dfr.to_hdf(tropics_store_name, key='Af_tr'+'/block_{0}'.format(year), mode='r+', format='table', 
+            #           data_columns=['day_since'], append=True)
 
 
 
@@ -346,27 +390,103 @@ class FireObs(object):
                 print("--- %s seconds ---" % (time.time() - start_time))
                 start_time = time.time()
 
-
-    def cluster_store(self, store_name, obj):
-        start_time = time.time()
-        print(obj)
-        dfr = pd.read_hdf(store_name, key=obj, columns=['x', 'y', 'z', 'day_since'])
+    def cluster_region(self, dfr, label_increment=None):
+        labels_all = {}
         for dur in [1, 2, 4, 8, 16]:
             print(dur)
             dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
             labels = cluster_euc(dfr[['x', 'y', 'z', 'day_since_tmp']].values, self.eps, min_samples=1)
-            label_fr = pd.DataFrame({'labels_{0}'.format(dur): labels})
-            label_fr.to_hdf(store_name, key=obj+'/labels_{0}'.format(dur),
-                            format='table', data_columns=['labels_{0}'.format(dur)],
-                            append=True)
+            if label_increment:
+                labels += label_increment['labs{0}_inc'.format(dur)]
+            labels_all['labs{0}'.format(dur)] = labels
+        labels_fr = pd.DataFrame(labels_all)
+        return labels_fr
+
+    def write_dfr_to_parquet(self, dfr, region_id):
+        store_name = os.path.join(self.data_path, '{0}.parquet'.format(region_id))
+        dfr.to_parquet(store_name)
+
+    def read_dfr_from_parquet(self, region_id, columns = None):
+        store_name = os.path.join(self.data_path, '{0}.parquet'.format(region_id))
+        dfr = pd.read_parquet(store_name, columns=columns)
+        return dfr
+
+    def get_label_increment(self, reg_id):
+        dfr = self.read_dfr_from_parquet(reg_id, columns = self.labels)
+        incd = {}
+        for dur in [1, 2, 4, 8, 16]:
+            incd['labs{0}_inc'.format(dur)] = dfr['labs{0}'.format(dur)].max()
+        return incd
+
+
+    def cluster_Af_blocks():
+        for nr, block in enumerate(self.years[1:]):
+            print(block)
+            dfr = self.read_dfr_from_parquet('Af_tr' + '_{0}_'.format(block))
+            if nr == 0:
+                label_increment = None
+            else:
+                prev_region_name = 'Af_tr_{0}_'.format(self.years[nr-1])
+                label_increment = self.get_label_increment(prev_region_name)
+            label_fr = self.cluster_region(dfr, label_increment)
+            dfr = pd.concat([dfr, label_fr], axis=1)
+            dfr.to_parquet('Af_tr' + '_{0}_'.format(block))
+            labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
+            overlap = dfr[dfr['labs16'].isin(labs_last)]
+            dfr[~dfr['labs16'].isin(labs_last)].to_parquet('Af_tr' + '_{0}_'.format(block))
+            if block == self.years[-1]:
+                break
+            next_region_name = 'Af_tr_{0}'.format(self.years[nr+1])
+            dfr_next = self.read_dfr_from_parquet(next_region_name)
+            dfr_next = dfr_next.append(overlap, ignore_index=True)
+            dfr_next.sort_values(['day_since'], inplace = True)
+            dfr_next.reset_index(drop=True, inplace=True)
+            dfr_next.drop(['index'],axis=1, inplace=True)
+            self.write_dfr_to_parquet(dfr_next, next_region_name)
+
+    def merge_blocks(self, reg, block_ids):
+        cols = ['x', 'y', 'z', 'day_since', 'labs1', 'labs2', 'labs4', 'labs8', 'labs16']
+        for nr, block in enumerate(self.years):
+            dfr = self.read_dfr_from_parquet(reg + '_{0}'.format(block))
+            labels = self.cluster_region(self, dfr)
+            labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
+
+        for nr, block in enumerate(block_ids):
+            dfr = self.read_dfr_from_parquet(reg + '_{0}'.format(block),
+                                            columns = cols)
+            self.cluster_region
+            labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
+
+
+    def clustering(self, reg):
+        if reg == 'Af_tr':
+            self.cluster_Af_blocks()
+            #for year in self.years:
+            #    region_name = reg + '_{0}'.format(year)
+            #    dfr = self.read_dfr_from_parquet(region_name, columns = ['x', 'y', 'z', 'day_since'])
+            #    self.cluster_region(dfr)
+        else:
+            region_name = 'data/{0}.parquet'.format(reg)
+            dfr = self.read_dfr_from_parquet(region_name, columns = ['x', 'y', 'z', 'day_since'])
+            self.cluster_region(dfr)
+            self.add_labels_to_dfr(region_name)
+
+    def centroids_pandas(self, reg, dur):
+        store_name = os.path.join(self.data_path, '{0}.parquet'.format(reg))
+        dfr = pd.read_parquet(store_name, columns=['lon', 'lat',
+                                                   'day_since', 
+                                                   'labs1', 'labs{0}'.format(dur)])
+        gr = dfr.groupby(['labs{0}'.format(dur)])['day_since']
+        condition_limit = gr.transform(min)
+        reduced_dfr = dfr.query('day_since == @condition_limit')
+        centroids = reduced_dfr.groupby(['labs1']).agg({'lon':'mean', 'lat':'mean'})
 
 if __name__ == '__main__':
-    data_path = '.'
-    #data_path = '/mnt/data/area_burned_glob'
-    #store_name = os.path.join(data_path, 'ba_store.h5')
-    store_name = 'ba_tropics_store.h5'
-    #tropics_store = 'ba_tropics_store.h5'
-    ba = FireObs(data_path, os.path.join(data_path, store_name))
+    data_path = 'data'
+    store_name = os.path.join(data_path, 'ba_store.h5')
+    #store_name = 'ba_tropics_store.h5'
+    tropics_store = 'ba_tropics_store.h5'
+    fo = FireObs(data_path, os.path.join(data_path, store_name))
     #dur = 16
     #dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
     ##labs16 = cluster_euc(dfr[['x', 'y', 'z', 'day_since_tmp']].values, self.eps, min_samples=2)
