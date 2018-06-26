@@ -496,12 +496,15 @@ class FireObs(object):
                                                              'day_since', 
                                                              'labs1', 
                                                              'labs{0}'.format(dur)])
+        dates = pd.date_range('2002-01-01', periods=dfr.day_since.max(), freq='d')
         gr = dfr.groupby(['labs{0}'.format(dur)])['day_since']
         condition_limit = gr.transform(min)
         reduced_dfr = dfr.query('day_since == @condition_limit')
         centroids = reduced_dfr.groupby(['labs1', 'day_since']).agg({'lon':'mean', 'lat':'mean'})
         centroids.reset_index(level=1, inplace=True)
         centroids.reset_index(drop=True, inplace=True)
+        centroids.loc[:, 'date'] = dates[centroids.day_since-1]
+        centroids.loc[:, 'year'] = centroids.date.dt.year
         return centroids
 
     def combine_centroids(self, dur):

@@ -44,27 +44,49 @@ class Gridder(object):
         ignitions = np.flipud(ignitions)
         return ignitions
 
-    def to_xarray(self, data, timestamps):
+    def to_xarray(self, data, var_name, timestamps):
         lats = np.arange((-90 + self.step / 2.), 90., self.step)[::-1]
         lons = np.arange((-180 + self.step / 2.), 180., self.step)
-        dataset = xr.Dataset({'ignitions': (['latitude', 'longitude', 'date'], data)},
+        dataset = xr.Dataset({var_name: (['latitude', 'longitude', 'date'], data)},
                               coords={'latitude': lats,
                                      'longitude': lons,
                                      'date': timestamps})
         return dataset
 
-    def grid_centroids(self, dfr):
-        dates = pd.date_range('2002-01-01', periods=dfr.day_since.max(), freq='d')
-        dfr.loc[:, 'date'] = dates[dfr.day_since-1]
-        dfr.loc[:, 'year'] = dfr.date.dt.year
-        grouped = dfr.groupby('year')
-        for year, gr_year in grouped:
-            grouped_days = gr_year.groupby('date')
+    def grid_centroids_all(self, dfr_list):
+        dsl = []
+        dates = pd.date_range('2002-01-01', periods=dfr_list[0].day_since.max(), freq='d')
+        for nr, dur in enumerate(['2', '4', '8', '16']):
+            print(dur)
+            dfr = dfr_list[nr]
+            dfr.loc[:, 'date'] = dates[dfr.day_since-1]
+            grouped_days = dfr.groupby('date')
             grids = [self.to_grid(x[1]) for x in grouped_days]
-            timestamps = [x[0] for x in grouped_days]
-            netcdf_store = self.to_xarray(np.dstack(grids), timestamps)
-            netcdf_store.to_netcdf('data/ignitions_8d_agg_{0}.nc'.format(year),
-                          encoding={'ignitions': {'dtype': 'int16', 'zlib': True}})
+            dataset = xr.Dataset({'ignitions{0}'.format(dur): (['latitude', 'longitude', 'date'], np.dstack(grids))},
+                                  coords={'latitude': lats,
+                                         'longitude': lons,
+                                         'date': dates})
+            dsl.append(dataset)
+            return dsl
+
+
+    def grid_centroids(self, years, dfr_list):
+        for year in years:
+            dsy = []
+            for nr, dur in enumerate(['2', '4', '8', '16']):
+                dfr = dfr_list[nr]
+                gr_year = dfr[dfr.year == year]
+                grouped_days = gr_year.groupby('date')
+                grids = [self.to_grid(x[1]) for x in grouped_days]
+                timestamps = [x[0] for x in grouped_days]
+                netcdf_store = self.to_xarray(np.dstack(grids), 'ign_agg_{0}'.format(dur), timestamps)
+                dsy.append(netcdf_store)
+            dsa = xr.merge(dsy)
+            dsa.to_netcdf('data/ignitions_tropics_{0}.nc'.format(year),
+                          encoding={'ign_agg_2': {'dtype': 'int16', 'zlib': True},
+                                    'ign_agg_4': {'dtype': 'int16', 'zlib': True},
+                                    'ign_agg_8': {'dtype': 'int16', 'zlib': True},
+                                    'ign_agg_16': {'dtype': 'int16', 'zlib': True}})
 
 
             
