@@ -1,6 +1,7 @@
 import os
 import time
 import datetime
+import itertools
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -47,6 +48,9 @@ def get_days_since(dfr):
     return dfr#(dates - basedate).dt.days
 
 def find_ignitions(dfr):
+    """
+    Unfinished, implement if naive way doesn't work
+    """
     days = dfr.day_since.unique()
     days[::-1].sort()
     obj_cs = {}
@@ -98,6 +102,11 @@ class FireObs(object):
         self.regions_bounds = {'Am_tr': [-113, 31.5, -3.5, -55],
                                'Af_tr': [-18, 22.5, 52, -35],
                                'As_tr': [59.5, 40, 155.5, -30.5]}
+        self.africa_block_strings()
+
+    def africa_block_strings(self):
+        blocks = itertools.product(['Af_tr'], self.years[:-1])
+        self.af_blocks = ['_'.join([x[0], str(x[1])]) for x in blocks]
 
     def pixel_lon_lat(self, tile_v, tile_h, idi, idj):
         """
@@ -264,7 +273,7 @@ class FireObs(object):
         for reg in self.regions_bounds.keys():
             if reg == 'Af_tr':
                 for year in self.years[:-1]:
-                    block_strings = self.block_strings(year)
+                    lock_strings = self.block_strings(year)
                     dfr = [pd.read_hdf(store_name, 'ba', where=x) for x in block_strings]
                     dfr = pd.concat(dfr)
                     parq_name = '{0}_{1}.parquet'.format(reg, year)
@@ -415,71 +424,93 @@ class FireObs(object):
         dfr = self.read_dfr_from_parquet(reg_id, columns = self.labels)
         incd = {}
         for dur in [1, 2, 4, 8, 16]:
-            incd['labs{0}_inc'.format(dur)] = dfr['labs{0}'.format(dur)].max()
+            incd['labs{0}_inc'.format(dur)] = dfr['labs{0}'.format(dur)].max() + 1
         return incd
 
+    def append_overlap(self, dfr, overlap):
+        overlap = self.clean_dfr(overlap)
+        try:
+            overlap.drop(self.labels, axis=1, inplace = True)
+        except:
+            pass
+        dfr = dfr.append(overlap, ignore_index = True)
+        dfr.sort_values(['day_since'], inplace = True)
+        dfr.reset_index(drop = True, inplace = True)
+        return dfr
 
-    def cluster_Af_blocks():
-        for nr, block in enumerate(self.years[1:]):
+
+    def clean_dfr(self, dfr):
+        try:
+            dfr.drop(['index'],axis=1, inplace=True)
+        except:
+            pass
+        try:
+            dfr.drop(['level_0'],axis=1, inplace=True)
+        except:
+            pass
+        try:
+            dfr.drop(['day_since_tmp'],axis=1, inplace=True)
+        except:
+            pass
+        return dfr
+
+    def cluster_Af_blocks(self):
+        for nr, block in enumerate(self.years[:-1]):
             print(block)
-            dfr = self.read_dfr_from_parquet('Af_tr' + '_{0}_'.format(block))
             if nr == 0:
+                dfr = self.read_dfr_from_parquet('Af_tr_{0}'.format(block))
                 label_increment = None
             else:
-                prev_region_name = 'Af_tr_{0}_'.format(self.years[nr-1])
+                dfr = self.read_dfr_from_parquet('Af_tr_{0}_mod'.format(block))
+                prev_region_name = 'Af_tr_{0}_mod_lab'.format(self.years[nr-1])
                 label_increment = self.get_label_increment(prev_region_name)
             label_fr = self.cluster_region(dfr, label_increment)
             dfr = pd.concat([dfr, label_fr], axis=1)
-            dfr.to_parquet('Af_tr' + '_{0}_'.format(block))
+            if block == self.years[-2]:
+                 self.write_dfr_to_parquet('Af_tr_{0}_mod_lab'.format(block))
+                 break
+            #dfr.to_parquet('Af_tr' + '_{0}_'.format(block))
             labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
             overlap = dfr[dfr['labs16'].isin(labs_last)]
-            dfr[~dfr['labs16'].isin(labs_last)].to_parquet('Af_tr' + '_{0}_'.format(block))
-            if block == self.years[-1]:
-                break
+            self.write_dfr_to_parquet(dfr[~dfr['labs16'].isin(labs_last)], 
+                                      'Af_tr_{0}_mod_lab'.format(block))
             next_region_name = 'Af_tr_{0}'.format(self.years[nr+1])
             dfr_next = self.read_dfr_from_parquet(next_region_name)
-            dfr_next = dfr_next.append(overlap, ignore_index=True)
-            dfr_next.sort_values(['day_since'], inplace = True)
-            dfr_next.reset_index(drop=True, inplace=True)
-            dfr_next.drop(['index'],axis=1, inplace=True)
-            self.write_dfr_to_parquet(dfr_next, next_region_name)
-
-    def merge_blocks(self, reg, block_ids):
-        cols = ['x', 'y', 'z', 'day_since', 'labs1', 'labs2', 'labs4', 'labs8', 'labs16']
-        for nr, block in enumerate(self.years):
-            dfr = self.read_dfr_from_parquet(reg + '_{0}'.format(block))
-            labels = self.cluster_region(self, dfr)
-            labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
-
-        for nr, block in enumerate(block_ids):
-            dfr = self.read_dfr_from_parquet(reg + '_{0}'.format(block),
-                                            columns = cols)
-            self.cluster_region
-            labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
-
+            dfr_next = self.clean_dfr(dfr_next)
+            dfr_next = self.append_overlap(dfr_next, overlap)
+            self.write_dfr_to_parquet(dfr_next, next_region_name+'_mod')
 
     def clustering(self, reg):
         if reg == 'Af_tr':
             self.cluster_Af_blocks()
-            #for year in self.years:
-            #    region_name = reg + '_{0}'.format(year)
-            #    dfr = self.read_dfr_from_parquet(region_name, columns = ['x', 'y', 'z', 'day_since'])
-            #    self.cluster_region(dfr)
         else:
             region_name = 'data/{0}.parquet'.format(reg)
             dfr = self.read_dfr_from_parquet(region_name, columns = ['x', 'y', 'z', 'day_since'])
             self.cluster_region(dfr)
             self.add_labels_to_dfr(region_name)
 
-    def centroids_pandas(self, reg, dur):
-        store_name = os.path.join(self.data_path, '{0}.parquet'.format(reg))
-        dfr = pd.read_parquet(store_name, columns=['lon', 'lat',
-                                                   'day_since', 
-                                                   'labs1', 'labs{0}'.format(dur)])
+    def centroids_pandas(self, parq_name, dur):
+        store_name = os.path.join(self.data_path, '{0}.parquet'.format(parq_name))
+        dfr = self.read_dfr_from_parquet(parq_name, columns=['lon', 
+                                                             'lat',
+                                                             'day_since', 
+                                                             'labs1', 
+                                                             'labs{0}'.format(dur)])
         gr = dfr.groupby(['labs{0}'.format(dur)])['day_since']
         condition_limit = gr.transform(min)
         reduced_dfr = dfr.query('day_since == @condition_limit')
-        centroids = reduced_dfr.groupby(['labs1']).agg({'lon':'mean', 'lat':'mean'})
+        centroids = reduced_dfr.groupby(['labs1', 'day_since']).agg({'lon':'mean', 'lat':'mean'})
+        centroids.reset_index(level=1, inplace=True)
+        centroids.reset_index(drop=True, inplace=True)
+        return centroids
+
+    def combine_centroids(self, dur):
+        regions = ['As_tr', 'Am_tr']
+        regions.extend(self.af_blocks)
+        parq_names = ['{0}_mod_lab'.format(x) for x in regions]
+        centroids = [self.centroids_pandas(x, dur) for x in parq_names]
+        centroids = pd.concat(centroids, ignore_index=True)
+        return centroids
 
 if __name__ == '__main__':
     data_path = 'data'

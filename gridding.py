@@ -44,11 +44,28 @@ class Gridder(object):
         ignitions = np.flipud(ignitions)
         return ignitions
 
-    def to_netcdf(self, data):
+    def to_xarray(self, data, timestamps):
         lats = np.arange((-90 + self.step / 2.), 90., self.step)[::-1]
         lons = np.arange((-180 + self.step / 2.), 180., self.step)
-        dataset = xr.Dataset({'ignitions': (['latitude', 'longitude'], data)},
+        dataset = xr.Dataset({'ignitions': (['latitude', 'longitude', 'date'], data)},
                               coords={'latitude': lats,
-                                     'longitude': lons})
+                                     'longitude': lons,
+                                     'date': timestamps})
         return dataset
+
+    def grid_centroids(self, dfr):
+        dates = pd.date_range('2002-01-01', periods=dfr.day_since.max(), freq='d')
+        dfr.loc[:, 'date'] = dates[dfr.day_since-1]
+        dfr.loc[:, 'year'] = dfr.date.dt.year
+        grouped = dfr.groupby('year')
+        for year, gr_year in grouped:
+            grouped_days = gr_year.groupby('date')
+            grids = [self.to_grid(x[1]) for x in grouped_days]
+            timestamps = [x[0] for x in grouped_days]
+            netcdf_store = self.to_xarray(np.dstack(grids), timestamps)
+            netcdf_store.to_netcdf('data/ignitions_8d_agg_{0}.nc'.format(year),
+                          encoding={'ignitions': {'dtype': 'int16', 'zlib': True}})
+
+
+            
  
