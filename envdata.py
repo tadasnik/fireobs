@@ -5,22 +5,20 @@ import itertools
 import numpy as np
 import xarray as xr
 import pandas as pd
-import dask as ds
 from sklearn.cluster import DBSCAN
-#from pyhdf.SD import SD
 from multiprocessing import Pool, cpu_count
 from gridding import Gridder
 
 
 def cluster_haversine(dfr):
-    db = DBSCAN(eps=0.8/6371., min_samples=2, algorithm='ball_tree', 
+    db = DBSCAN(eps=0.8/6371., min_samples=2, algorithm='ball_tree',
             metric='haversine', n_jobs=-1).fit(np.radians(dfr[['lat', 'lon']]))
     return db.labels_
 
 def cluster_euc(xyzt, eps, min_samples):
     #divide space eps by approximate Earth radius in km to get eps in radians.
     #xyzt = np.column_stack((xyz, dates * (eps / time_eps)))
-    db = DBSCAN(eps=eps, min_samples=min_samples, algorithm='ball_tree', 
+    db = DBSCAN(eps=eps, min_samples=min_samples, algorithm='ball_tree',
             metric='euclidean', n_jobs=-1).fit(xyzt)
     return db.labels_
 
@@ -46,22 +44,6 @@ def get_days_since(dfr):
     dates = pd.to_datetime(dfr.year, format='%Y') + pd.to_timedelta(dfr.date, unit='d')
     dfr.loc[:, 'day_since'] = (dates - basedate).dt.days
     return dfr#(dates - basedate).dt.days
-
-def find_ignitions(dfr):
-    """
-    Unfinished, implement if naive way doesn't work
-    """
-    days = dfr.day_since.unique()
-    days[::-1].sort()
-    obj_cs = {}
-    for nr, day in enumerate(days[1:]):
-        print(day)
-        dr = dfr[dfr.day_since <= day]
-        labs = cluster_euc(dr[['x', 'y', 'z']], dr.day_since, 1, 0.7)# make this class method, self.eps!
-        for lab in np.unique(labs):
-            if len(labs[labs==lab] == 1):
-                obj_cs[str(lab)] = [dr[labs==lab]['lon'].mean(), dr[labs==lab]['lat'].mean()]
-                obj_cs[str(lab)] = [dr[labs==lab]['lon'].mean(), dr[labs==lab]['lat'].mean()]
 
 def applyParallel(dfGrouped, func):
     with Pool(cpu_count()) as p:
@@ -110,7 +92,7 @@ class FireObs(object):
 
     def pixel_lon_lat(self, tile_v, tile_h, idi, idj):
         """
-        A method to calculate pixel lon lat, using the formulas 
+        A method to calculate pixel lon lat, using the formulas
         given in the MCD64A1 product ATBD document (Giglio)
         """
         # positions of centres of the grid cells on the global sinusoidal grid
@@ -243,13 +225,11 @@ class FireObs(object):
         fr_all.loc[:, 'year'] = year
         return fr_all
 
-
- 
     def populate_store(self):
         years = list(range(2002, 2016))
         for year in self.years:
             dfr = self.read_ba_year(year)
-            dfr.to_hdf(self.store_name, key='ba', format='table', 
+            dfr.to_hdf(self.store_name, key='ba', format='table',
                        data_columns=['year', 'date', 'lon', 'lat'], append=True)
 
 
@@ -342,31 +322,29 @@ class FireObs(object):
             return None
         break_day = pd.Timestamp('{0}-04-21'.format(year)).dayofyear
         if year == 2002:
-            block_strings = ['year=={0}'.format(year), 
+            block_strings = ['year=={0}'.format(year),
                              'year=={0}&date<={1}'.format(year+1, break_day)]
         elif year == 2014:
-            block_strings = ['year=={0}&date>{1}'.format(year, break_day), 
+            block_strings = ['year=={0}&date>{1}'.format(year, break_day),
                              'year=={0}'.format(year+1)]
         else:
             break_day_next = pd.Timestamp('{0}-04-21'.format(year+1)).dayofyear
-            block_strings = ['year=={0}&date>{1}'.format(year, break_day), 
+            block_strings = ['year=={0}&date>{1}'.format(year, break_day),
                              'year=={0}&date<={1}'.format(year+1, break_day_next)]
         return block_strings
 
     def get_overlap_dur(self, block_string, dur):
         label_str = 'labels_{0}'.format(dur)
-        labels_pr = pd.read_hdf(store_name, 
+        labels_pr = pd.read_hdf(store_name,
                                 key=block_string+'/labels_{0}'.format(dur)).values
         dfr_pr = pd.read_hdf(store_name, key=block_string, columns=['lon', 'lat', 'day_since'])
-        dfr_pr.loc[:,label_str] = labels_pr 
+        dfr_pr.loc[:,label_str] = labels_pr
         last_day = dfr_pr['day_since'].max()
         ovarlap_labels = dfr_pr[dfr_pr['day_since'] >= last_day - dur][label_str]
         overlap_dfr = dfr_pr[dfr_pr[label_str].isin(overlap_labels[overlap_labels > -1])]
         overlap_labels = overlap_dfr[label_str]
         #TODO finish this
         #+ -1's from overlap duration and return!
-
- 
 
     def cluster_blocks(self, store_name, dur):
         start_time = time.time()
@@ -378,9 +356,9 @@ class FireObs(object):
                 dfr = pd.read_hdf(store_name, key=block_string, columns=['x', 'y', 'z', 'day_since'])
                 dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
                 if nr == 0:
-                    labels = cluster_euc(dfr[['x', 'y', 'z', 
+                    labels = cluster_euc(dfr[['x', 'y', 'z',
                                                     'day_since_tmp']].values,
-                                                                    self.eps, 
+                                                                    self.eps,
                                                                     min_samples=2)
                     label_fr = pd.DataFrame({'labels_{0}'.format(dur): labels})
                     label_fr.to_hdf(store_name, key=block_string+'/labels_{0}'.format(dur),
@@ -391,7 +369,7 @@ class FireObs(object):
 
                     overlap = get_overlap_dur()
                     label_fr = pd.DataFrame({'labels_{0}'.format(labels): labels})
-                    labels_pr = pd.read_hdf(store_name, 
+                    labels_pr = pd.read_hdf(store_name,
                                    key='Af_tr/block_{0}/labels_{1}'.format(years[nr-1], dur))
                 fr['labs_{0}'.format(str(dur))] = labels
                 fr.to_hdf(store_name, key='{0}/labs_{1}'.format(obj, str(dur)), format='table',
@@ -472,7 +450,7 @@ class FireObs(object):
             #dfr.to_parquet('Af_tr' + '_{0}_'.format(block))
             labs_last = dfr[dfr['day_since'] >= dfr['day_since'].max()-16]['labs16'].unique()
             overlap = dfr[dfr['labs16'].isin(labs_last)]
-            self.write_dfr_to_parquet(dfr[~dfr['labs16'].isin(labs_last)], 
+            self.write_dfr_to_parquet(dfr[~dfr['labs16'].isin(labs_last)],
                                       'Af_tr_{0}_mod_lab'.format(block))
             next_region_name = 'Af_tr_{0}'.format(self.years[nr+1])
             dfr_next = self.read_dfr_from_parquet(next_region_name)
@@ -491,10 +469,10 @@ class FireObs(object):
 
     def centroids_pandas(self, parq_name, dur):
         store_name = os.path.join(self.data_path, '{0}.parquet'.format(parq_name))
-        dfr = self.read_dfr_from_parquet(parq_name, columns=['lon', 
+        dfr = self.read_dfr_from_parquet(parq_name, columns=['lon',
                                                              'lat',
-                                                             'day_since', 
-                                                             'labs1', 
+                                                             'day_since',
+                                                             'labs1',
                                                              'labs{0}'.format(dur)])
         dates = pd.date_range('2002-01-01', periods=dfr.day_since.max(), freq='d')
         gr = dfr.groupby(['labs{0}'.format(dur)])['day_since']
@@ -514,6 +492,17 @@ class FireObs(object):
         centroids = [self.centroids_pandas(x, dur) for x in parq_names]
         centroids = pd.concat(centroids, ignore_index=True)
         return centroids
+
+    def annual_averages(self):
+        """
+        A method to derive annual averages of a daily ignitions grids
+        """
+        for year in self.years:
+            fname = 'ignitions_tropics_{0}.nc'.format(year)
+            ds = xr.open_dataset(os.path.join(self.data_path, fname))
+            an_mean = ds.sum(dim='date')
+            an_mean.to_netcdf(os.path.join(self.data_path,
+                              'ignitions_yearly_sum_{0}.nc'.format(year)))
 
 if __name__ == '__main__':
     data_path = 'data'

@@ -32,6 +32,8 @@ pyviz = "*"
 holoviews = "*"
 notedown = "*"
 pyarrow = "*"
+gdal = "*"
+geoviews = "*"
 
 [dev-packages]
 
