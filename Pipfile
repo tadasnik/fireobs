@@ -31,9 +31,10 @@ datashader = "*"
 pyviz = "*"
 holoviews = "*"
 notedown = "*"
-pyarrow = "*"
 gdal = "*"
 geoviews = "*"
+futures = "==3.1.1"
+pyarrow = "*"
 
 [dev-packages]
 
