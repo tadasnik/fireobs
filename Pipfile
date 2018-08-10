@@ -34,6 +34,7 @@ notedown = "*"
 pyarrow = "*"
 gdal = "*"
 geoviews = "*"
+rasterio = "*"
 
 [dev-packages]
 

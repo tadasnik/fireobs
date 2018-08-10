@@ -9,6 +9,23 @@ from sklearn.cluster import DBSCAN
 from multiprocessing import Pool, cpu_count
 from gridding import Gridder
 
+def spatial_subset_dfr(dfr, bbox):
+    """
+    Selects data within spatial bbox. bbox coords must be given as
+    positive values for the Northern hemisphere, and negative for
+    Southern. West and East both positive - Note - the method is
+    naive and will only work for bboxes fully fitting in the Eastern hemisphere!!!
+    Args:
+        dfr - pandas dataframe
+        bbox - (list) [North, South, West, East]
+    Returns:
+        pandas dataframe
+    """
+    dfr = dfr.where((dfr['lat'] < bbox[0]) &
+                            (dfr['lat'] > bbox[1]), drop=True)
+    dfr = dfr.where((dfr['lon'] > bbox[2]) &
+                            (dfr['lon'] < bbox[3]), drop=True)
+    return dfr
 
 def cluster_haversine(dfr):
     db = DBSCAN(eps=0.8/6371., min_samples=2, algorithm='ball_tree',
@@ -63,7 +80,6 @@ def add_xyz(dfr):
     return dfr
 
 class FireObs(object):
-
     def __init__(self, data_path, store_name, bbox=None, hour=None):
         self.data_path = data_path
         self.store_name =  store_name
@@ -295,8 +311,6 @@ class FireObs(object):
             dfr.to_parquet(parq_name, engine='pyarrow')
             #dfr.to_hdf(tropics_store_name, key='Af_tr'+'/block_{0}'.format(year), mode='r+', format='table', 
             #           data_columns=['day_since'], append=True)
-
-
 
     def select_ba(self, selection):
         pass
