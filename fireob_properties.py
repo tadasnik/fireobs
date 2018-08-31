@@ -1,6 +1,12 @@
 import os
 import pandas as pd
 
+def get_datetime_from_day_since(dfr):
+    basedate = pd.Timestamp('2002-01-01')
+    dates = basedate + pd.to_timedelta(dfr.date, unit='d')
+    dfr.loc[:, 'day_since'] = (dates - basedate).dt.days
+    return dfr#(dates - basedate).dt.days
+
 def spatial_subset_dfr(dfr, bbox):
     """
     Selects data within spatial bbox. bbox coords must be given as
@@ -39,4 +45,5 @@ class FireObjs(object):
 
 if __name__ == '__main__':
     data_path = 'data'
+    bbox = [1, 101, -.4, 103.5]
     fo = FireObjs(data_path)

@@ -1,4 +1,5 @@
 import os
+import glob
 import time
 import datetime
 import itertools
@@ -8,6 +9,7 @@ import pandas as pd
 from sklearn.cluster import DBSCAN
 from multiprocessing import Pool, cpu_count
 from gridding import Gridder
+from pyhdf import SD
 
 def spatial_subset_dfr(dfr, bbox):
     """
@@ -520,6 +522,7 @@ class FireObs(object):
 
 if __name__ == '__main__':
     data_path = 'data'
+    #data_path = '/mnt/data/area_burned_glob'
     store_name = os.path.join(data_path, 'ba_store.h5')
     #store_name = 'ba_tropics_store.h5'
     tropics_store = 'ba_tropics_store.h5'
