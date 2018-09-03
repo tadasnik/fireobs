@@ -23,10 +23,10 @@ def spatial_subset_dfr(dfr, bbox):
     Returns:
         pandas dataframe
     """
-    dfr = dfr.where((dfr['lat'] < bbox[0]) &
-                            (dfr['lat'] > bbox[1]), drop=True)
-    dfr = dfr.where((dfr['lon'] > bbox[2]) &
-                            (dfr['lon'] < bbox[3]), drop=True)
+    dfr = dfr[(dfr['lat'] < bbox[0]) &
+                            (dfr['lat'] > bbox[1])]
+    dfr = dfr[(dfr['lon'] > bbox[2]) &
+                            (dfr['lon'] < bbox[3])]
     return dfr
 
 def cluster_haversine(dfr):
@@ -521,12 +521,13 @@ class FireObs(object):
                               'ignitions_yearly_sum_{0}.nc'.format(year)))
 
 if __name__ == '__main__':
+    bbox = [8.0, 93.0, -13.0, 143.0]
     data_path = 'data'
     #data_path = '/mnt/data/area_burned_glob'
     store_name = os.path.join(data_path, 'ba_store.h5')
     #store_name = 'ba_tropics_store.h5'
     tropics_store = 'ba_tropics_store.h5'
-    fo = FireObs(data_path, os.path.join(data_path, store_name))
+    fo = FireObs(data_path, os.path.join(data_path, store_name), bbox = bbox)
     #dur = 16
     #dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
     ##labs16 = cluster_euc(dfr[['x', 'y', 'z', 'day_since_tmp']].values, self.eps, min_samples=2)
