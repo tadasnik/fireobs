@@ -82,12 +82,8 @@ class Gridder(object):
                 netcdf_store = self.to_xarray(np.dstack(grids), 'ign_agg_{0}'.format(dur), timestamps)
                 dsy.append(netcdf_store)
             dsa = xr.merge(dsy)
-            dsa.to_netcdf('data/ignitions_tropics_{0}.nc'.format(year),
+            dsa.to_netcdf('/mnt/data/frp/ignitions_tropics_{0}_frp.nc'.format(year),
                           encoding={'ign_agg_2': {'dtype': 'int16', 'zlib': True},
                                     'ign_agg_4': {'dtype': 'int16', 'zlib': True},
                                     'ign_agg_8': {'dtype': 'int16', 'zlib': True},
                                     'ign_agg_16': {'dtype': 'int16', 'zlib': True}})
-
-
-            
- 
