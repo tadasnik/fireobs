@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.cluster import DBSCAN
 from multiprocessing import Pool, cpu_count
 from gridding import Gridder
-from pyhdf import SD
+#from pyhdf import SD
 
 def spatial_subset_dfr(dfr, bbox):
     """
@@ -527,6 +527,10 @@ if __name__ == '__main__':
     #store_name = 'ba_tropics_store.h5'
     tropics_store = 'ba_tropics_store.h5'
     fo = FireObs(data_path, os.path.join(data_path, store_name))
+    frp = xr.open_dataset('data/ignitions_tropics_2015_frp.nc')
+    ba = xr.open_dataset('data/ignitions_tropics_2015.nc')
+    frps = frp['ign_agg_8'].sum(dim='date')
+    bas = ba['ign_agg_8'].sum(dim='date')
     #dur = 16
     #dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
     ##labs16 = cluster_euc(dfr[['x', 'y', 'z', 'day_since_tmp']].values, self.eps, min_samples=2)
