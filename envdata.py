@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.cluster import DBSCAN
 from multiprocessing import Pool, cpu_count
 from gridding import Gridder
-from pyhdf import SD
+#from pyhdf import SD
 
 def spatial_subset_dfr(dfr, bbox):
     """
@@ -547,6 +547,10 @@ class FireObs(object):
             an_mean.to_netcdf(os.path.join(self.data_path,
                               'ignitions_yearly_sum_{0}.nc'.format(year)))
 
+    def fuse_ba_and_ba_ignitions(self, ba, frp):
+        pass
+
+
 if __name__ == '__main__':
     #bbox = [8.0, 93.0, -13.0, 143.0]
     #data_path = '/mnt/data/frp'
@@ -564,6 +568,15 @@ if __name__ == '__main__':
     #gr = Gridder(0.5)
     #gr.grid_centroids(fo.years, ctrs, 2900)
     indonesia_bb = [8.0, -13.0, 93.0, 143.0]
+    ba = xr.open_dataset('data/ignitions_ba_8.nc')
+    frp = xr.open_dataset('data/ignitions_frp_2900_8.nc')
+    """
+    dss = []
+    for  year in range(2002, 2016, 1):
+        ds = xr.open_dataset('data/ignitions_tropics_{0}.nc'.format(year))
+        #ds = xr.open_dataset('data/ignitions_tropics_{0}_2900_frp.nc'.format(year))
+        dss.append(ds['ign_agg_8'])
+    """
 
     #dur = 16
     #dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
