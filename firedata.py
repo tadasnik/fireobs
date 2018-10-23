@@ -520,6 +520,20 @@ class FireObs(object):
             an_mean.to_netcdf(os.path.join(self.data_path,
                               'ignitions_yearly_sum_{0}.nc'.format(year)))
 
+def modpixsize(th):
+    Re = 6378.137
+    h = 705
+    s = 0.0014184397
+    r = Re + h
+    top = np.cos(th)
+    bot = np.sqrt((Re / r)**2 - (np.sin(th**2)))
+    s_size = (Re*s) * ((top / bot) - 1)
+    t_size = (r * s) * (np.cos(th) - np.sqrt((Re / r)**2  - np.sin(th)**2))
+    return s_size, t_size
+
+
+
+
 if __name__ == '__main__':
     data_path = 'data'
     #data_path = '/mnt/data/area_burned_glob'
@@ -527,8 +541,10 @@ if __name__ == '__main__':
     #store_name = 'ba_tropics_store.h5'
     tropics_store = 'ba_tropics_store.h5'
     fo = FireObs(data_path, os.path.join(data_path, store_name))
-    frp = xr.open_dataset('data/ignitions_tropics_2015_frp.nc')
-    ba = xr.open_dataset('data/ignitions_tropics_2015.nc')
+    frp = xr.open_dataset('data/ignitions_tropics_2010_2900_frp.nc')
+    ba = xr.open_dataset('data/ignitions_tropics_2010.nc')
+    land_mask = 'data/era_land_mask_0.5.nc'
+    land_mask = xr.open_dataset(land_mask)
     frps = frp['ign_agg_8'].sum(dim='date')
     bas = ba['ign_agg_8'].sum(dim='date')
     #dur = 16
