@@ -93,7 +93,7 @@ class FireObs(object):
         self.earth_r = 6371007.181 # the radius of the idealized sphere representing the Earth
         self.years = list(range(2002, 2016))
         #DBSCAN eps in radians = 750 meters for MCD64A1 and 1500 meters for FRP / earth radius
-        self.eps = 1500 / self.earth_r
+        self.eps = 2900 / self.earth_r
         self.basedate = pd.Timestamp('2002-01-01')
 
         self.labels = ['labs1', 'labs2', 'labs4', 'labs8', 'labs16']
@@ -502,6 +502,14 @@ class FireObs(object):
             self.cluster_region(dfr)
             self.add_labels_to_dfr(region_name)
 
+    def cluster_frp_regions(self):
+        for region in ['As_tr', 'Am_tr', 'Af_tr']:
+            dfr = fo.read_dfr_from_parquet(region)
+            labels = fo.cluster_region(dfr)
+            dfr = fo.read_dfr_from_parquet(region, columns = ['lon', 'lat', 'date', 'day_since'])   #label_fr = fo.cluster_region(dfr)
+            dfr = pd.concat([dfr.reset_index(), labels], axis=1)
+            dfr.to_parquet('/mnt/data/frp/{0}_mod_lab.parquet'.format(region))
+
     def centroids_pandas(self, parq_name, dur):
         store_name = os.path.join(self.data_path, '{0}.parquet'.format(parq_name))
         dfr = self.read_dfr_from_parquet(parq_name, columns=['lon',
@@ -521,8 +529,8 @@ class FireObs(object):
         return centroids
 
     def combine_centroids(self, dur):
-        regions = ['As_tr', 'Am_tr', 'Af_tr']
-        #regions.extend(self.af_blocks)
+        regions = ['As_tr', 'Am_tr']#, 'Af_tr']
+        regions.extend(self.af_blocks)
         parq_names = ['{0}_mod_lab'.format(x) for x in regions]
         centroids = [self.centroids_pandas(x, dur) for x in parq_names]
         centroids = pd.concat(centroids, ignore_index=True)
@@ -541,23 +549,32 @@ class FireObs(object):
 
 if __name__ == '__main__':
     #bbox = [8.0, 93.0, -13.0, 143.0]
-    data_path = '/mnt/data/frp'
-    #data_path = 'data'
+    #data_path = '/mnt/data/frp'
+    data_path = 'data'
     #data_path = '/mnt/data/area_burned_glob'
     #store_name = os.path.join(data_path, 'ba_store.h5')
     #store_name = 'ba_tropics_store.h5'
     #tropics_store = 'ba_tropics_store.h5'
     fo = FireObs(data_path)#, os.path.join(data_path, store_name), bbox = bbox)
+    #ctrs = fo.combine_centroids(8)
     #ctrs = [fo.combine_centroids(x) for x in [2, 4, 8, 16]]
-    #dfr = fo.read_dfr_from_parquet('Am_tr', columns = ['lon', 'lat', 'date', 'day_since'])   #label_fr = fo.cluster_region(dfr)
     #lab_dfr = fo.read_dfr_from_parquet('Am_tr_mod_lab')
-    #dfr = pd.concat([dfr.reset_index(), lab_dfr], axis=1)
-    #dfr.to_parquet('/mnt/data/frp/Am_tr_mod_lab.parquet')
+    #fo.cluster_frp_regions()
+    #ctrs = [fo.combine_centroids(x) for x in [2, 4, 8, 16]]
+    #gr = Gridder(0.5)
+    #gr.grid_centroids(fo.years, ctrs, 2900)
+    indonesia_bb = [8.0, -13.0, 93.0, 143.0]
+
     #dur = 16
     #dfr.loc[:, 'day_since_tmp'] = dfr['day_since'] * (self.eps / dur)
     ##labs16 = cluster_euc(dfr[['x', 'y', 'z', 'day_since_tmp']].values, self.eps, min_samples=2)
     #dfr.loc[:, 'labs16'] = labs16
     #ba.populate_store_af_blocks(store_name, tropics_store, )
     #ba.cluster_store(store_name, ['Af_tr', 'Am_tr', 'As_tr'])
-    #ba.populate_store_tropics(tropics_store)
+    # a.populate_store_tropics(tropics_store)
     #ba.populate_store()
+    #dfs = []
+    #for year in range(2002, 2016, 1):
+    #    df = pd.read_parquet('/mnt/data/frp/M6_{0}_indonesia.parquet'.format(year))
+    #    dfs.append(df)
+

@@ -70,7 +70,7 @@ class Gridder(object):
             return dsl
 
 
-    def grid_centroids(self, years, dfr_list):
+    def grid_centroids(self, years, dfr_list, distance):
         for year in years:
             dsy = []
             for nr, dur in enumerate(['2', '4', '8', '16']):
@@ -82,7 +82,7 @@ class Gridder(object):
                 netcdf_store = self.to_xarray(np.dstack(grids), 'ign_agg_{0}'.format(dur), timestamps)
                 dsy.append(netcdf_store)
             dsa = xr.merge(dsy)
-            dsa.to_netcdf('/mnt/data/frp/ignitions_tropics_{0}_frp.nc'.format(year),
+            dsa.to_netcdf('/mnt/data/frp/ignitions_tropics_{0}_{1}_frp.nc'.format(year, distance),
                           encoding={'ign_agg_2': {'dtype': 'int16', 'zlib': True},
                                     'ign_agg_4': {'dtype': 'int16', 'zlib': True},
                                     'ign_agg_8': {'dtype': 'int16', 'zlib': True},
